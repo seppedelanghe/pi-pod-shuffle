@@ -3,8 +3,8 @@ package main
 import (
 	"log"
 	"os"
+	"pi-pod-shuffle/internal/controller"
 	"pi-pod-shuffle/internal/player"
-	"time"
 )
 
 func main() {
@@ -24,13 +24,8 @@ func main() {
 	}
 
 	p.SetVolume(0.8)
-	err = p.Play()
-	if err != nil {
-		panic(err)
-	}
-
-	// crude but effective: keep process alive
-	for p.State() != player.StateStopped {
-		time.Sleep(200 * time.Millisecond)
+	ctrl := controller.NewMacOSKeyboard()
+	if err := ctrl.Run(p); err != nil {
+		log.Fatal(err)
 	}
 }

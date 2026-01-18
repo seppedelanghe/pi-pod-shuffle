@@ -21,6 +21,7 @@ type player struct {
 	current *Track
 
 	mixer  *beep.Mixer
+	ctrl   *beep.Ctrl
 	volume *effects.Volume
 
 	sampleRate beep.SampleRate
@@ -46,6 +47,7 @@ func newPlayer(sampleRate int) (*player, error) {
 	return &player{
 		state:      StateStopped,
 		mixer:      mixer,
+		ctrl:       nil,
 		volume:     vol,
 		sampleRate: sr,
 	}, nil
@@ -78,13 +80,15 @@ func (p *player) Play() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.state == StatePlaying {
-		return nil
-	}
-
-	p.state = StatePlaying
-
-	if p.current == nil {
+	switch p.state {
+	case StatePaused:
+		speaker.Lock()
+		if p.ctrl != nil {
+			p.ctrl.Paused = false
+		}
+		speaker.Unlock()
+		p.state = StatePlaying
+	case StateStopped:
 		return p.playNextLocked()
 	}
 
@@ -97,7 +101,7 @@ func (p *player) Pause() {
 
 	if p.state == StatePlaying {
 		p.state = StatePaused
-		p.volume.Silent = true
+		p.ctrl.Paused = true
 	}
 }
 
@@ -159,8 +163,13 @@ func (p *player) playNextLocked() error {
 	speaker.Lock()
 	p.volume.Silent = false
 
+	p.ctrl = &beep.Ctrl{
+		Paused:   false,
+		Streamer: s,
+	}
+	p.ctrl.Streamer = s
 	seq := beep.Seq(
-		s,
+		p.ctrl,
 		beep.Callback(func() {
 			streamer.Close()
 			p.mu.Lock()
