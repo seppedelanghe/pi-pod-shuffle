@@ -115,26 +115,26 @@ func (p *player) Stop() {
 	p.current = nil
 }
 
-func (p *player) Next() {
+func (p *player) Next() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.playNextLocked()
+	return p.playNextLocked()
 }
 
-func (p *player) Previous() {
+func (p *player) Previous() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if len(p.history) == 0 {
-		return
+		return nil
 	}
 
 	last := p.history[len(p.history)-1]
 	p.history = p.history[:len(p.history)-1]
 	p.queue = append([]Track{last}, p.queue...)
 
-	p.playNextLocked()
+	return p.playNextLocked()
 }
 
 func (p *player) playNextLocked() error {
@@ -177,6 +177,8 @@ func (p *player) playNextLocked() error {
 			p.playNextLocked()
 		}),
 	)
+
+	p.mixer.Clear()
 	p.mixer.Add(seq)
 	speaker.Unlock()
 	return nil

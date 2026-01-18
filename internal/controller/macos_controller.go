@@ -29,7 +29,7 @@ func (k *MacOSKeyboard) Run(p player.Player) error {
 	k.oldState = state
 	defer term.Restore(fd, state)
 
-	fmt.Println("Controls: space=play/pause  n=next  p=prev  +=vol up  -=vol down  q=quit")
+	fmt.Println("Controls:\tspace=play/pause\tn=next\tp=prev\t+=vol up\t-=vol down\tq=quit")
 
 	buf := make([]byte, 1)
 
@@ -47,10 +47,18 @@ func (k *MacOSKeyboard) Run(p player.Player) error {
 			}
 
 		case 'n':
-			p.Next()
+			err := p.Next()
+			if err != nil {
+				fmt.Println(err)
+				p.Stop()
+			}
 
 		case 'p':
-			p.Previous()
+			err := p.Previous()
+			if err != nil {
+				fmt.Println(err)
+				p.Stop()
+			}
 
 		case '+':
 			v := p.Volume() + 0.05

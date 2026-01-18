@@ -11,8 +11,8 @@ type Player interface {
 	Pause()
 	Stop()
 
-	Next()
-	Previous()
+	Next() error
+	Previous() error
 
 	// Volume
 	SetVolume(v Volume)

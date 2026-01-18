@@ -23,7 +23,7 @@ func main() {
 		}
 	}
 
-	p.SetVolume(0.8)
+	p.SetVolume(1.0)
 	ctrl := controller.NewMacOSKeyboard()
 	if err := ctrl.Run(p); err != nil {
 		log.Fatal(err)
