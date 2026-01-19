@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build !linux
 
 package controller
 
@@ -11,15 +11,15 @@ import (
 	"golang.org/x/term"
 )
 
-type MacOSKeyboard struct {
+type KeyboardController struct {
 	oldState *term.State
 }
 
-func NewMacOSKeyboard() *MacOSKeyboard {
-	return &MacOSKeyboard{}
+func NewKeyboardController() *KeyboardController {
+	return &KeyboardController{}
 }
 
-func (k *MacOSKeyboard) Run(p player.Player) error {
+func (k *KeyboardController) Run(p player.Player) error {
 	fd := int(os.Stdin.Fd())
 
 	state, err := term.MakeRaw(fd)
@@ -77,7 +77,7 @@ func (k *MacOSKeyboard) Run(p player.Player) error {
 	}
 }
 
-func (k *MacOSKeyboard) Stop() error {
+func (k *KeyboardController) Stop() error {
 	if k.oldState != nil {
 		return term.Restore(int(os.Stdin.Fd()), k.oldState)
 	}

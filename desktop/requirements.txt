@@ -1,4 +1,2 @@
-customtkinter
-numpy==1.*
-soundfile
-essentia-tensorflow
+librosa
+scikit-learn

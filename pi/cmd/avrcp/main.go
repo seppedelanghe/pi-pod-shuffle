@@ -24,7 +24,11 @@ func main() {
 	}
 
 	p.SetVolume(1.0)
-	ctrl := controller.NewMacOSKeyboard()
+	ctrl, err := controller.NewAVRCPController()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	if err := ctrl.Run(p); err != nil {
 		log.Fatal(err)
 	}

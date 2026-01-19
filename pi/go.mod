@@ -3,7 +3,12 @@ module pi-pod-shuffle
 go 1.25.0
 
 require (
-	github.com/faiface/beep v1.1.0 // indirect
+	github.com/faiface/beep v1.1.0
+	github.com/gvalkov/golang-evdev v0.0.0-20220815104727-7e27d6ce89b6
+	golang.org/x/term v0.39.0
+)
+
+require (
 	github.com/hajimehoshi/go-mp3 v0.3.0 // indirect
 	github.com/hajimehoshi/oto v0.7.1 // indirect
 	github.com/icza/bitio v1.0.0 // indirect
@@ -14,5 +19,4 @@ require (
 	golang.org/x/image v0.0.0-20190227222117-0694c2d4d067 // indirect
 	golang.org/x/mobile v0.0.0-20190415191353-3e0bab5405d6 // indirect
 	golang.org/x/sys v0.40.0 // indirect
-	golang.org/x/term v0.39.0 // indirect
 )
