@@ -1,0 +1,4 @@
+customtkinter
+numpy==1.*
+soundfile
+essentia-tensorflow

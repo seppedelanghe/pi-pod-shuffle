@@ -1,9 +1,19 @@
 *.flac
 *.mp3
 *.wav
+*.json
+*.pb
 
 # MacOS
 .DS_Store
 
 # Builds
 pi/dist
+
+# AI
+./desktop/models/*
+
+# Python
+.venv
+__pycache__
+*.pyc
