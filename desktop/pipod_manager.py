@@ -1,8 +1,11 @@
 import argparse
 import os
-import json
 import subprocess
 import numpy as np
+from viz import cmd_visualize
+from helpers import load_json, save_json
+
+from statics import RAW_DB_FILE, LIBRARY_FILE, DEFAULT_MUSIC_DIR, SUPPORTED_EXTS
 
 # Try imports and handle missing libraries gracefully
 try:
@@ -15,25 +18,9 @@ except ImportError as e:
     print("Install them with: pip install librosa scikit-learn numpy")
     LIBS_AVAILABLE = False
 
-# --- CONFIGURATION ---
-# Edit these defaults or pass them as arguments
-DEFAULT_MUSIC_DIR = "./music"  # Current folder by default
-RAW_DB_FILE = "raw_features.json" # Local storage of big vectors
-LIBRARY_FILE = "library.json"     # The file synced to Pi (small vectors)
-SUPPORTED_EXTS = ('.mp3', '.flac', '.wav', '.m4a')
 
 # --- HELPERS ---
 
-def load_json(path):
-    if os.path.exists(path):
-        with open(path, 'r') as f:
-            return json.load(f)
-    return {}
-
-def save_json(data, path):
-    with open(path, 'w') as f:
-        json.dump(data, f, indent=2)
-    print(f"Saved {path}")
 
 # --- COMMANDS ---
 
@@ -74,27 +61,45 @@ def cmd_scan(args):
         print("\nRun 'python pipod_manager.py process' to analyze them.")
 
 def extract_features(full_path):
-    """Extracts 'fat' audio features using Librosa."""
+    """Improved musical features: tempo, chroma progression, dynamics, brightness, spectral centroid."""
     try:
-        # Load 30 seconds max to be fast
-        y, sr = librosa.load(full_path, duration=30, sr=22050)
-        
-        # 1. Rhythm: Tempo
+        # Load entire track if possible
+        y, sr = librosa.load(full_path, sr=22050, duration=300)
+
+        # --- 1. Tempo (Rhythm) ---
         onset_env = librosa.onset.onset_strength(y=y, sr=sr)
         tempo = librosa.beat.tempo(onset_envelope=onset_env, sr=sr)
-        tempo = tempo[0] if isinstance(tempo, np.ndarray) else tempo
+        tempo = float(tempo[0] if isinstance(tempo, np.ndarray) else tempo)
 
-        # 2. Timbre: MFCCs (13 dims)
-        mfcc = np.mean(librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13), axis=1)
-        
-        # 3. Pitch/Harmony: Chroma (12 dims)
-        chroma = np.mean(librosa.feature.chroma_stft(y=y, sr=sr), axis=1)
-        
-        # 4. Brightness: Spectral Contrast (7 dims)
+        # --- 2. Chroma (Pitch/Harmony) ---
+        chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+        chroma = chroma / np.sum(chroma, axis=0, keepdims=True)  # normalize
+        chroma_mean = np.mean(chroma, axis=1)
+        chroma_delta = np.mean(np.diff(chroma, axis=1), axis=1)  # captures progression
+
+        # --- 3. Spectral Contrast (Brightness) ---
         contrast = np.mean(librosa.feature.spectral_contrast(y=y, sr=sr), axis=1)
 
-        # Flatten into one vector (~33 floats)
-        return np.concatenate([[tempo], mfcc, chroma, contrast]).tolist()
+        # --- 4. Spectral Centroid (Structure) ---
+        centroid = librosa.feature.spectral_centroid(y=y, sr=sr)
+        centroid_mean = np.mean(centroid)
+        centroid_var = np.var(centroid)
+
+        # --- 5. RMS (Dynamics) ---
+        rms = librosa.feature.rms(y=y)
+        rms_mean = np.mean(rms)
+        rms_var = np.var(rms)
+
+        # --- Combine all features into one vector ---
+        feature_vector = np.concatenate([
+            [tempo],
+            chroma_mean, chroma_delta,
+            contrast,
+            [centroid_mean, centroid_var],
+            [rms_mean, rms_var]
+        ])
+
+        return feature_vector.tolist()
 
     except Exception as e:
         print(f"Error reading {os.path.basename(full_path)}: {e}")
@@ -173,6 +178,7 @@ def cmd_process(args):
     save_json(library_data, lib_db_path)
     print("Ready to sync.")
 
+
 def cmd_sync(args):
     """Syncs files and library.json to Pi via rsync."""
     if not args.user or not args.ip or not args.dest:
@@ -215,6 +221,13 @@ if __name__ == "__main__":
 
     # Process
     p_process = subparsers.add_parser("process", help="Analyze audio and update library")
+    
+    # Process
+    p_viz = subparsers.add_parser("viz", help="Visualize the analyzed audio")
+    p_viz.add_argument(
+        "--anchor",
+        help="Anchor song (partial filename match, case-insensitive)"
+    )
 
     # Sync
     p_sync = subparsers.add_parser("sync", help="Sync to Pi")
@@ -228,5 +241,7 @@ if __name__ == "__main__":
         cmd_scan(args)
     elif args.command == "process":
         cmd_process(args)
+    elif args.command == "viz":
+        cmd_visualize(args)
     elif args.command == "sync":
         cmd_sync(args)

@@ -17,3 +17,6 @@ pi/dist
 .venv
 __pycache__
 *.pyc
+
+# data
+data/
