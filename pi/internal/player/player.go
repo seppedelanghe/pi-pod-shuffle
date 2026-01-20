@@ -3,6 +3,8 @@ package player
 import (
 	"fmt"
 	"pi-pod-shuffle/internal/audio"
+	"pi-pod-shuffle/internal/queue"
+	"pi-pod-shuffle/internal/track"
 	"sync"
 	"time"
 
@@ -15,10 +17,7 @@ type player struct {
 	mu sync.Mutex
 
 	state State
-
-	queue   []Track
-	history []Track
-	current *Track
+	queue queue.MusicQueue
 
 	mixer  *beep.Mixer
 	ctrl   *beep.Ctrl
@@ -27,7 +26,7 @@ type player struct {
 	sampleRate beep.SampleRate
 }
 
-func newPlayer(sampleRate int) (*player, error) {
+func newPlayer(sampleRate int, musicQueue queue.MusicQueue) (*player, error) {
 	sr := beep.SampleRate(sampleRate)
 
 	if err := speaker.Init(sr, sr.N(time.Second/4)); err != nil {
@@ -46,34 +45,12 @@ func newPlayer(sampleRate int) (*player, error) {
 
 	return &player{
 		state:      StateStopped,
+		queue:      musicQueue,
 		mixer:      mixer,
 		ctrl:       nil,
 		volume:     vol,
 		sampleRate: sr,
 	}, nil
-}
-
-func (p *player) Enqueue(t Track) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	p.queue = append(p.queue, t)
-	return nil
-}
-
-func (p *player) EnqueueNext(t Track) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	p.queue = append([]Track{t}, p.queue...)
-	return nil
-}
-
-func (p *player) ClearQueue() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	p.queue = nil
 }
 
 func (p *player) Play() error {
@@ -89,7 +66,7 @@ func (p *player) Play() error {
 		speaker.Unlock()
 		p.state = StatePlaying
 	case StateStopped:
-		return p.playNextLocked()
+		return p.playNextLocked(p.queue.Current())
 	}
 
 	return nil
@@ -112,41 +89,32 @@ func (p *player) Stop() {
 	p.state = StateStopped
 	p.volume.Silent = true
 	p.mixer.Clear()
-	p.current = nil
+	p.queue.Clear()
 }
 
 func (p *player) Next() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	return p.playNextLocked()
+	next := p.queue.Next()
+	return p.playNextLocked(next)
 }
 
 func (p *player) Previous() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if len(p.history) == 0 {
-		return nil
-	}
-
-	last := p.history[len(p.history)-1]
-	p.history = p.history[:len(p.history)-1]
-	p.queue = append([]Track{last}, p.queue...)
-
-	return p.playNextLocked()
+	track := p.queue.Previous()
+	return p.playNextLocked(track)
 }
 
-func (p *player) playNextLocked() error {
-	if len(p.queue) == 0 {
+func (p *player) playNextLocked(track *track.Track) error {
+	if p.queue.Empty() {
 		p.state = StateStopped
 		return fmt.Errorf("Player: Queue empty")
 	}
 
-	next := p.queue[0]
-	p.queue = p.queue[1:]
-
-	streamer, format, err := audio.Decode(next.Path)
+	streamer, format, err := audio.Decode(track.Path)
 	if err != nil {
 		return err
 	}
@@ -156,10 +124,7 @@ func (p *player) playNextLocked() error {
 		s = beep.Resample(4, format.SampleRate, p.sampleRate, s)
 	}
 
-	p.current = &next
-	p.history = append(p.history, next)
 	p.state = StatePlaying
-
 	speaker.Lock()
 	p.volume.Silent = false
 
@@ -174,7 +139,7 @@ func (p *player) playNextLocked() error {
 			streamer.Close()
 			p.mu.Lock()
 			defer p.mu.Unlock()
-			p.playNextLocked()
+			p.Next()
 		}),
 	)
 
@@ -212,19 +177,4 @@ func (p *player) State() State {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.state
-}
-
-func (p *player) Current() *Track {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.current
-}
-
-func (p *player) Queue() []Track {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	out := make([]Track, len(p.queue))
-	copy(out, p.queue)
-	return out
 }

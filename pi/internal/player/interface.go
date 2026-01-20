@@ -1,11 +1,8 @@
 package player
 
-type Player interface {
-	// Queue management
-	Enqueue(track Track) error
-	EnqueueNext(track Track) error
-	ClearQueue()
+import "pi-pod-shuffle/internal/queue"
 
+type Player interface {
 	// Transport
 	Play() error
 	Pause()
@@ -20,10 +17,8 @@ type Player interface {
 
 	// Introspection
 	State() State
-	Current() *Track
-	Queue() []Track
 }
 
-func New(sampleRate int) (Player, error) {
-	return newPlayer(sampleRate)
+func New(sampleRate int, musicQueue queue.MusicQueue) (Player, error) {
+	return newPlayer(sampleRate, musicQueue)
 }
