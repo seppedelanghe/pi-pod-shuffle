@@ -78,7 +78,9 @@ func (p *player) Pause() {
 
 	if p.state == StatePlaying {
 		p.state = StatePaused
-		p.ctrl.Paused = true
+		if p.ctrl != nil {
+			p.ctrl.Paused = true
+		}
 	}
 }
 
@@ -89,6 +91,11 @@ func (p *player) Stop() {
 	p.state = StateStopped
 	p.volume.Silent = true
 	p.mixer.Clear()
+
+	if curr := p.queue.Current(); curr != nil && curr.Streamer != nil {
+		curr.Close()
+	}
+
 	p.queue.Clear()
 }
 
@@ -96,13 +103,22 @@ func (p *player) Next() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	next := p.queue.Next()
+	playtime := p.calculatePlaytime()
+	if curr := p.queue.Current(); curr != nil && curr.Streamer != nil {
+		curr.Close()
+	}
+
+	next := p.queue.Next(playtime)
 	return p.playNextLocked(next)
 }
 
 func (p *player) Previous() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	if curr := p.queue.Current(); curr != nil && curr.Streamer != nil {
+		curr.Close()
+	}
 
 	track := p.queue.Previous()
 	return p.playNextLocked(track)
@@ -114,14 +130,11 @@ func (p *player) playNextLocked(track *track.Track) error {
 		return fmt.Errorf("Player: Queue empty")
 	}
 
-	streamer, format, err := audio.Decode(track.Path)
-	if err != nil {
-		return err
-	}
+	buffSeeker := audio.NewBufferedStreamSeeker(track.Streamer, time.Second*2, track.Format)
 
-	var s beep.Streamer = streamer
-	if format.SampleRate != p.sampleRate {
-		s = beep.Resample(4, format.SampleRate, p.sampleRate, s)
+	var finalStream beep.Streamer = buffSeeker
+	if track.Format.SampleRate != p.sampleRate {
+		finalStream = beep.Resample(4, track.Format.SampleRate, p.sampleRate, buffSeeker)
 	}
 
 	p.state = StatePlaying
@@ -130,23 +143,58 @@ func (p *player) playNextLocked(track *track.Track) error {
 
 	p.ctrl = &beep.Ctrl{
 		Paused:   false,
-		Streamer: s,
+		Streamer: finalStream,
 	}
-	p.ctrl.Streamer = s
+
 	seq := beep.Seq(
 		p.ctrl,
 		beep.Callback(func() {
-			streamer.Close()
-			p.mu.Lock()
-			defer p.mu.Unlock()
-			p.Next()
+			go p.handleTrackFinished()
 		}),
 	)
 
 	p.mixer.Clear()
 	p.mixer.Add(seq)
 	speaker.Unlock()
+
+	fmt.Printf("\r\nPlaying track: '%s'", track.Path)
 	return nil
+}
+
+func (p *player) handleTrackFinished() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.state == StateStopped {
+		return
+	}
+
+	if curr := p.queue.Current(); curr != nil && curr.Streamer != nil {
+		curr.Close()
+	}
+
+	next := p.queue.Next(1.0)
+	if err := p.playNextLocked(next); err != nil {
+		fmt.Println("Error playing next track:", err)
+		p.state = StateStopped
+	}
+}
+
+func (p *player) calculatePlaytime() float32 {
+	curr := p.queue.Current()
+	if curr == nil || curr.Streamer == nil || curr.Streamer.Len() == 0 {
+		return 0.0
+	}
+
+	pos := curr.Streamer.Position()
+	trackLen := curr.Streamer.Len()
+
+	percent := float32(pos) / float32(trackLen)
+
+	if percent > 1.0 {
+		return 1.0
+	}
+	return percent
 }
 
 func (p *player) SetVolume(v Volume) {

@@ -6,7 +6,7 @@ type MusicQueue interface {
 	Empty() bool
 	Clear()
 
-	Next() *track.Track
+	Next(playtime float32) *track.Track
 	Current() *track.Track
 	Previous() *track.Track
 }

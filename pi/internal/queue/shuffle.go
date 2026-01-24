@@ -1,39 +1,35 @@
 package queue
 
 import (
-	"fmt"
+	"log"
 	"math/rand/v2"
 	"pi-pod-shuffle/internal/track"
 )
 
 // True shuffle -> nothing smart
 type ShuffledQueue struct {
-	stack []track.Track
+	stack []string
 
 	current *track.Track
-	queue   []*track.Track
-	history []*track.Track
+	queue   []string
+	history []string
 }
 
-func NewShuffledQueue(tracks []track.Track) ShuffledQueue {
-	rand.Shuffle(len(tracks), func(i, j int) {
-		tracks[i], tracks[j] = tracks[j], tracks[i]
+func NewShuffledQueue(files []string) ShuffledQueue {
+	rand.Shuffle(len(files), func(i, j int) {
+		files[i], files[j] = files[j], files[i]
 	})
 
-	current := &tracks[0]
-	queue := make([]*track.Track, len(tracks)-1)
-	history := make([]*track.Track, 0)
-
-	fmt.Printf("len(tracks): %v\n", len(tracks))
-	for i := range tracks[1:] {
-		queue[i] = &tracks[i+1]
+	current, err := track.LoadTrack(files[0])
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	return ShuffledQueue{
-		stack:   tracks,
+		stack:   files,
 		current: current,
-		queue:   queue,
-		history: history,
+		queue:   files[1:],
+		history: make([]string, 0),
 	}
 }
 
@@ -45,21 +41,25 @@ func (q *ShuffledQueue) Clear() {
 	q.queue = nil
 }
 
-func (q *ShuffledQueue) Next() *track.Track {
+func (q *ShuffledQueue) Next(playtime float32) *track.Track {
 	if len(q.queue) == 0 {
 		return nil
 	}
 
-	q.history = append(q.history, q.current)
-	q.current = q.queue[0]
-	q.queue = q.queue[1:]
+	_ = playtime
 
-	fmt.Printf("q.current.Path: %v\n", q.current.Path)
+	q.history = append(q.history, q.current.Path)
+	newTrack, err := track.LoadTrack(q.queue[0])
+	if err != nil {
+		log.Fatal(err)
+	}
+	q.queue = q.queue[1:]
+	q.current = newTrack
+
 	return q.current
 }
 
 func (q *ShuffledQueue) Current() *track.Track {
-	fmt.Printf("q.current.Path: %v\n", q.current.Path)
 	return q.current
 }
 
@@ -68,12 +68,15 @@ func (q *ShuffledQueue) Previous() *track.Track {
 		return nil
 	}
 
-	q.queue = append([]*track.Track{q.current}, q.queue...)
+	q.queue = append([]string{q.current.Path}, q.queue...)
 	lastIndex := len(q.history) - 1
 
-	q.current = q.history[lastIndex]
+	prevTrack, err := track.LoadTrack(q.history[lastIndex])
+	if err != nil {
+		log.Fatal(err)
+	}
+	q.current = prevTrack
 	q.history = q.history[:lastIndex]
-	fmt.Printf("q.current.Path: %v\n", q.current.Path)
 
 	return q.current
 }

@@ -1,38 +1,30 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"pi-pod-shuffle/internal/controller"
+	"pi-pod-shuffle/internal/io"
 	"pi-pod-shuffle/internal/player"
 	"pi-pod-shuffle/internal/queue"
-	"pi-pod-shuffle/internal/track"
 )
+
+var extensions = []string{".flac"}
 
 func main() {
 	if len(os.Args) < 2 {
-		log.Fatal("usage: player <dir>")
+		log.Fatal("usage: player <library>")
 	}
 
 	dirname := os.Args[1]
-	files, err := os.ReadDir(dirname)
+	files, err := io.FindFiles(dirname, extensions)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	tracks := make([]track.Track, 0)
-	for _, file := range files {
-		if !file.IsDir() {
-			relPath := filepath.Join(dirname, file.Name())
-			absPath, err := filepath.Abs(relPath)
-			if err != nil {
-				log.Fatal(err)
-			}
-			tracks = append(tracks, track.Track{Path: absPath})
-		}
-	}
-	musicQueue := queue.NewShuffledQueue(tracks)
+	musicQueue := queue.NewShuffledQueue(files)
+	fmt.Printf("Found %d songs\n", len(files))
 
 	p, err := player.New(44100, &musicQueue)
 	if err != nil {

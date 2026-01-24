@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"pi-pod-shuffle/internal/player"
-	"time"
 
 	"golang.org/x/term"
 )
@@ -20,6 +19,10 @@ func NewKeyboardController() *KeyboardController {
 }
 
 func (k *KeyboardController) Run(p player.Player) error {
+	fmt.Print("\033[H\033[2J")
+	fmt.Print("Pi Pod Shuffle Player\r\n")
+	fmt.Printf("Controls:\tspace=play/pause\tn=next\tp=prev\t+=vol up\t-=vol down\tq=quit")
+
 	fd := int(os.Stdin.Fd())
 
 	state, err := term.MakeRaw(fd)
@@ -28,8 +31,6 @@ func (k *KeyboardController) Run(p player.Player) error {
 	}
 	k.oldState = state
 	defer term.Restore(fd, state)
-
-	fmt.Println("Controls:\tspace=play/pause\tn=next\tp=prev\t+=vol up\t-=vol down\tq=quit")
 
 	buf := make([]byte, 1)
 
@@ -72,8 +73,6 @@ func (k *KeyboardController) Run(p player.Player) error {
 			p.Stop()
 			return nil
 		}
-
-		time.Sleep(20 * time.Millisecond)
 	}
 }
 
