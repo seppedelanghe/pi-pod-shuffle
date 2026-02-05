@@ -1,30 +1,41 @@
 import argparse
+import librosa
 import os
+import json
 import traceback
 import torch
 import subprocess
 import numpy as np
 
-from viz import cmd_visualize
-from helpers import load_json, save_json
-from extraction import extract_embeddings
 from statics import RAW_DB_FILE, LIBRARY_FILE, DEFAULT_MUSIC_DIR, SUPPORTED_EXTS
 
 from pytorch.models import Cnn6
 
-
-# Try imports and handle missing libraries gracefully
-try:
-    import librosa
-    LIBS_AVAILABLE = True
-except ImportError as e:
-    print(f"Warning: Audio/ML libraries not found ({e}). 'process' command will fail.")
-    print("Install them with: pip install librosa numpy")
-    LIBS_AVAILABLE = False
-
-
 # --- HELPERS ---
 
+def load_json(path):
+    if os.path.exists(path):
+        with open(path, 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_json(data, path):
+    with open(path, 'w') as f:
+        json.dump(data, f, indent=2)
+    print(f"Saved {path}")
+
+
+
+def extract_embeddings(path: str, model):
+    audio, _ = librosa.load(path, sr=32000, duration=120, mono=True)
+    audio = audio[None, :] # add batch dim: (1, -1)
+    device = 'cuda' if torch.cuda.is_available() else 'mps'
+
+    tensor = torch.from_numpy(audio).to(device)
+    out = model(tensor)
+    embedding = out['embedding']
+    return embedding.detach().cpu().numpy().tolist()
+    
 
 # --- COMMANDS ---
 
@@ -67,10 +78,6 @@ def cmd_scan(args):
 
 def cmd_process(args):
     """Analyzes new files and re-runs PCA."""
-    if not LIBS_AVAILABLE:
-        print("Error: Missing required libraries (librosa, sklearn).")
-        return
-
     raw_db_path = os.path.join(args.dir, RAW_DB_FILE)
     lib_db_path = os.path.join(args.dir, LIBRARY_FILE)
     
@@ -142,11 +149,9 @@ def cmd_sync(args):
 
     remote = f"{args.user}@{args.ip}:{args.dest}"
     print(f"--- Syncing to {remote} ---")
-
-    # Ensure local path ends in / for rsync to copy CONTENTS, not folder
     src = args.dir if args.dir.endswith('/') else args.dir + '/'
 
-    # 1. Sync Music (exclude raw data file, include everything else)
+    # Sync Music (exclude raw data file, include everything else)
     # --delete removes songs on Pi that were deleted locally
     cmd = [
         "rsync", "-av", "--delete",
@@ -177,13 +182,6 @@ if __name__ == "__main__":
     # Process
     p_process = subparsers.add_parser("process", help="Analyze audio and update library")
     
-    # Process
-    p_viz = subparsers.add_parser("viz", help="Visualize the analyzed audio")
-    p_viz.add_argument(
-        "--anchor",
-        help="Anchor song (partial filename match, case-insensitive)"
-    )
-
     # Sync
     p_sync = subparsers.add_parser("sync", help="Sync to Pi")
     p_sync.add_argument("--user", help="Pi SSH Username (e.g. pi)")
@@ -196,7 +194,5 @@ if __name__ == "__main__":
         cmd_scan(args)
     elif args.command == "process":
         cmd_process(args)
-    elif args.command == "viz":
-        cmd_visualize(args)
     elif args.command == "sync":
         cmd_sync(args)
