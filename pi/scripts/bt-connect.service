@@ -1,0 +1,16 @@
+[Unit]
+Description=Connect Bluetooth device and run program
+After=bluetooth.target sound.target
+Requires=bluetooth.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/bt-connect-and-run.sh
+Restart=always
+RestartSec=5
+
+# Optional but often needed
+User=root
+
+[Install]
+WantedBy=multi-user.target

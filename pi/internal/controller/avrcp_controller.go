@@ -45,6 +45,11 @@ func (b *AVRCPController) Run(p player.Player) error {
 
 	fmt.Printf("Listening for controls from: %s\n", b.device.Name)
 
+	err := p.Play()
+	if err != nil {
+		return err
+	}
+
 	for {
 		readEvents, err := b.device.Read()
 		if err != nil {

@@ -1,29 +1,35 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"pi-pod-shuffle/internal/controller"
+	"pi-pod-shuffle/internal/io"
 	"pi-pod-shuffle/internal/player"
+	"pi-pod-shuffle/internal/queue"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		log.Fatal("usage: player <audiofile1> [audiofile2...]")
+		log.Fatal("usage: player <library>")
 	}
 
-	p, err := player.New(44100)
+	libraryPath := os.Args[1]
+	library, err := io.LoadMusicLibary(libraryPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	for _, path := range os.Args[1:] {
-		if err := p.Enqueue(player.Track{Path: path}); err != nil {
-			log.Fatal(err)
-		}
+	musicQueue := queue.NewSmartShuffledQueue(library)
+	fmt.Printf("Found %d songs\n", len(library.Files))
+
+	p, err := player.New(44100, &musicQueue)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	p.SetVolume(1.0)
+	p.SetVolume(0.0)
 	ctrl, err := controller.NewAVRCPController()
 	if err != nil {
 		log.Fatal(err)

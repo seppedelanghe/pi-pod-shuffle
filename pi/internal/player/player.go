@@ -125,11 +125,6 @@ func (p *player) Previous() error {
 }
 
 func (p *player) playNextLocked(track *track.Track) error {
-	if p.queue.Empty() {
-		p.state = StateStopped
-		return fmt.Errorf("Player: Queue empty")
-	}
-
 	buffSeeker := audio.NewBufferedStreamSeeker(track.Streamer, time.Second*2, track.Format)
 
 	var finalStream beep.Streamer = buffSeeker

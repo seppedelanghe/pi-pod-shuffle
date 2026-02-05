@@ -3,6 +3,7 @@ package queue
 import (
 	"log"
 	"math/rand/v2"
+	"pi-pod-shuffle/internal/io"
 	"pi-pod-shuffle/internal/track"
 )
 
@@ -15,7 +16,9 @@ type ShuffledQueue struct {
 	history []string
 }
 
-func NewShuffledQueue(files []string) ShuffledQueue {
+func NewShuffledQueue(libary *io.MusicLibrary) ShuffledQueue {
+	files := libary.Filenames()
+
 	rand.Shuffle(len(files), func(i, j int) {
 		files[i], files[j] = files[j], files[i]
 	})

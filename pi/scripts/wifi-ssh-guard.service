@@ -1,0 +1,12 @@
+[Unit]
+Description=Disable WiFi if no SSH client connects after boot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/disable-wifi-if-no-ssh.sh
+User=root
+
+[Install]
+WantedBy=multi-user.target

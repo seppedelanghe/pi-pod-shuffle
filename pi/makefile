@@ -11,7 +11,7 @@ pi: docker
 
 pi-debug: docker
 	docker run --rm -v "$(PWD)":/app -w /app \
-		-e CGO_ENABLED=1 -e GOOS=linux -e GOARCH=arm64 \
+		-e CGO_ENABLED=1 -e GOOS=linux -e GOARCH=arm64 -e GOMAXPROCS=1 -e GOGC=200 \
 		$(IMAGE) \
 		go build -o ./dist/pi-pod-shuffle ./cmd/debug/main.go
 

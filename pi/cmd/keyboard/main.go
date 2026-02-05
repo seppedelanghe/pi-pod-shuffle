@@ -10,21 +10,19 @@ import (
 	"pi-pod-shuffle/internal/queue"
 )
 
-var extensions = []string{".flac"}
-
 func main() {
 	if len(os.Args) < 2 {
 		log.Fatal("usage: player <library>")
 	}
 
-	dirname := os.Args[1]
-	files, err := io.FindFiles(dirname, extensions)
+	libraryPath := os.Args[1]
+	library, err := io.LoadMusicLibary(libraryPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	musicQueue := queue.NewShuffledQueue(files)
-	fmt.Printf("Found %d songs\n", len(files))
+	musicQueue := queue.NewSmartShuffledQueue(library)
+	fmt.Printf("Found %d songs\n", len(library.Files))
 
 	p, err := player.New(44100, &musicQueue)
 	if err != nil {
