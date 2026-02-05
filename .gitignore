@@ -12,6 +12,7 @@ pi/dist
 
 # AI
 ./desktop/models/*
+*.pth
 
 # Python
 .venv

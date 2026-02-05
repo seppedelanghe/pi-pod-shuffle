@@ -1,8 +1,11 @@
-from statics import RAW_DB_FILE, LIBRARY_FILE
+from statics import LIBRARY_FILE
 from helpers import load_json
 
 def cmd_visualize(args):
-    """High-quality similarity visualization with explicit anchor selection."""
+    """
+    Visualizes similarity using RAW embeddings for calculation 
+    and UMAP for the 2D plot.
+    """
     try:
         import matplotlib.pyplot as plt
         from sklearn.metrics import pairwise_distances
@@ -15,34 +18,28 @@ def cmd_visualize(args):
         return
 
     lib_path = os.path.join(args.dir, LIBRARY_FILE)
-    raw_path = os.path.join(args.dir, RAW_DB_FILE)
-
     library = load_json(lib_path)
-    raw = load_json(raw_path)
 
-    if not library or not raw:
+    if not library:
         print("Library is empty. Run 'process' first.")
         return
 
+    # 1. LOAD RAW EMBEDDINGS
+    # We maintain the order of paths to map indices back to filenames
     paths = list(library.keys())
+    
+    # Create the matrix (N_songs x 512)
+    # This IS the raw data from PANNs
     vectors = np.array([library[p] for p in paths])
 
-    if vectors.shape[1] < 2:
-        print("Not enough dimensions to visualize.")
-        return
+    print(f"Loaded {len(vectors)} songs with {vectors.shape[1]} dimensions.")
 
-    # -------------------------------------------------
-    # 1. VARIANCE-WEIGHTED DISTANCE SPACE
-    # -------------------------------------------------
-    variances = np.var(vectors, axis=0)
-    weights = np.sqrt(variances / np.sum(variances))
-    Xw = vectors * weights
+    # 2. CALCULATE SIMILARITY ON RAW DATA
+    # We use Cosine Distance (1 - Cosine Similarity)
+    # This happens in 512-dim space for maximum accuracy
+    distances = pairwise_distances(vectors, metric="cosine")
 
-    distances = pairwise_distances(Xw, metric="cosine")
-
-    # -------------------------------------------------
-    # 2. FIND ANCHOR SONG
-    # -------------------------------------------------
+    # 3. SELECT ANCHOR SONG
     if args.anchor:
         matches = [
             i for i, p in enumerate(paths)
@@ -58,95 +55,97 @@ def cmd_visualize(args):
     anchor_path = paths[anchor_idx]
     anchor_name = os.path.basename(anchor_path)
 
-    # -------------------------------------------------
-    # 3. SIMILAR & DISSIMILAR
-    # -------------------------------------------------
-    d = distances[anchor_idx]
+    # 4. FIND NEIGHBORS (MATH STEP)
+    # We look at the row in the distance matrix corresponding to our anchor
+    d_scores = distances[anchor_idx]
 
-    nearest = np.argsort(d)[1:6]
-    furthest = np.argsort(d)[-5:][::-1]
+    # argsort gives us the indices of the sorted array
+    # [1:6] skips index 0 (which is the song itself, distance 0.0)
+    nearest_indices = np.argsort(d_scores)[1:6]
+    
+    # [-5:][::-1] gets the last 5 (highest distance) and reverses them
+    furthest_indices = np.argsort(d_scores)[-5:][::-1]
 
-    print("\n=== ANCHOR SONG ===")
-    print(anchor_name)
+    print("\n" + "="*40)
+    print(f"ANCHOR: {anchor_name}")
+    print("="*40)
 
-    print("\n--- Top 5 MOST SIMILAR ---")
-    for i in nearest:
-        print(f"{d[i]:.3f}  |  {os.path.basename(paths[i])}")
+    print(f"{'DIST':<8} | {'TOP 5 SIMILAR'}")
+    print("-" * 40)
+    for i in nearest_indices:
+        print(f"{d_scores[i]:.4f}   | {os.path.basename(paths[i])}")
 
-    print("\n--- Top 5 MOST DISSIMILAR ---")
-    for i in furthest:
-        print(f"{d[i]:.3f}  |  {os.path.basename(paths[i])}")
+    print("\n" + "-" * 40)
+    print(f"{'DIST':<8} | {'TOP 5 DISSIMILAR'}")
+    print("-" * 40)
+    for i in furthest_indices:
+        print(f"{d_scores[i]:.4f}   | {os.path.basename(paths[i])}")
 
-    # -------------------------------------------------
-    # 4. UMAP (VISUALIZATION ONLY)
-    # -------------------------------------------------
-    umap = UMAP(
-        n_neighbors=min(15, len(Xw) - 1),
-        min_dist=0.1,
-        metric="euclidean",
-        random_state=42,
+    # 5. REDUCE DIMENSIONS (VISUALIZATION STEP ONLY)
+    # We reduce 512 -> 2 just for the graph. 
+    # This does NOT affect the text results printed above.
+    print("\nCalculating 2D projection for plot...")
+    reducer = UMAP(
+        n_neighbors=15, 
+        min_dist=0.1, 
+        metric='cosine', # It's good practice to match the metric used above
+        random_state=42
     )
-    embedding = umap.fit_transform(Xw)
+    embedding_2d = reducer.fit_transform(vectors)
 
-    tempos = np.array([raw[p][0] for p in paths])
-
-    # -------------------------------------------------
-    # 5. PLOTTING
-    # -------------------------------------------------
+    # 6. PLOT
     fig, ax = plt.subplots(figsize=(10, 8))
 
-    sc = ax.scatter(
-        embedding[:, 0],
-        embedding[:, 1],
-        c=tempos,
-        cmap="viridis",
-        s=50,
-        alpha=0.8,
-    )
-
-    # Anchor
+    # Plot all songs as faint blue dots
     ax.scatter(
-        embedding[anchor_idx, 0],
-        embedding[anchor_idx, 1],
-        color="red",
-        s=160,
-        label="Anchor",
-        zorder=5,
+        embedding_2d[:, 0],
+        embedding_2d[:, 1],
+        c='lightgray',
+        s=30,
+        alpha=0.5,
+        label='Library'
     )
 
-    # Nearest neighbors
-    for i in nearest:
+    # Plot Anchor (Red Star)
+    ax.scatter(
+        embedding_2d[anchor_idx, 0],
+        embedding_2d[anchor_idx, 1],
+        c='red',
+        s=200,
+        marker='*',
+        label='Anchor',
+        zorder=10
+    )
+
+    # Plot Nearest (Green Circles)
+    # connect them with lines to the anchor
+    for i in nearest_indices:
         ax.scatter(
-            embedding[i, 0],
-            embedding[i, 1],
-            color="lime",
-            s=120,
-            zorder=4,
+            embedding_2d[i, 0],
+            embedding_2d[i, 1],
+            c='green',
+            s=100,
+            zorder=9
         )
+        # Draw line
         ax.plot(
-            [embedding[anchor_idx, 0], embedding[i, 0]],
-            [embedding[anchor_idx, 1], embedding[i, 1]],
-            color="gray",
-            alpha=0.4,
+            [embedding_2d[anchor_idx, 0], embedding_2d[i, 0]],
+            [embedding_2d[anchor_idx, 1], embedding_2d[i, 1]],
+            c='green',
+            alpha=0.3
+        )
+        # Add simple text label
+        ax.text(
+            embedding_2d[i, 0], 
+            embedding_2d[i, 1], 
+            os.path.basename(paths[i])[:15], # truncate long names
+            fontsize=8
         )
 
-    # Furthest neighbors
-    for i in furthest:
-        ax.scatter(
-            embedding[i, 0],
-            embedding[i, 1],
-            color="black",
-            s=80,
-            alpha=0.7,
-        )
-
-    ax.set_title(f"Similarity Map (Anchor: {anchor_name})")
-    ax.set_xlabel("UMAP-1")
-    ax.set_ylabel("UMAP-2")
-    ax.grid(alpha=0.2)
-
-    cbar = plt.colorbar(sc, ax=ax)
-    cbar.set_label("Tempo (BPM)")
-
+    ax.legend()
+    ax.set_title(f"Similarity Space: {anchor_name}")
+    ax.set_xlabel("UMAP Dimension 1")
+    ax.set_ylabel("UMAP Dimension 2")
+    
     plt.tight_layout()
     plt.show()

@@ -1,21 +1,25 @@
 import argparse
 import os
+import traceback
+import torch
 import subprocess
 import numpy as np
+
 from viz import cmd_visualize
 from helpers import load_json, save_json
-
+from extraction import extract_embeddings
 from statics import RAW_DB_FILE, LIBRARY_FILE, DEFAULT_MUSIC_DIR, SUPPORTED_EXTS
+
+from pytorch.models import Cnn6
+
 
 # Try imports and handle missing libraries gracefully
 try:
     import librosa
-    from sklearn.decomposition import PCA
-    from sklearn.preprocessing import StandardScaler
     LIBS_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: Audio/ML libraries not found ({e}). 'process' command will fail.")
-    print("Install them with: pip install librosa scikit-learn numpy")
+    print("Install them with: pip install librosa numpy")
     LIBS_AVAILABLE = False
 
 
@@ -60,50 +64,6 @@ def cmd_scan(args):
     if new_files:
         print("\nRun 'python pipod_manager.py process' to analyze them.")
 
-def extract_features(full_path):
-    """Improved musical features: tempo, chroma progression, dynamics, brightness, spectral centroid."""
-    try:
-        # Load entire track if possible
-        y, sr = librosa.load(full_path, sr=22050, duration=300)
-
-        # --- 1. Tempo (Rhythm) ---
-        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
-        tempo = librosa.beat.tempo(onset_envelope=onset_env, sr=sr)
-        tempo = float(tempo[0] if isinstance(tempo, np.ndarray) else tempo)
-
-        # --- 2. Chroma (Pitch/Harmony) ---
-        chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
-        chroma = chroma / np.sum(chroma, axis=0, keepdims=True)  # normalize
-        chroma_mean = np.mean(chroma, axis=1)
-        chroma_delta = np.mean(np.diff(chroma, axis=1), axis=1)  # captures progression
-
-        # --- 3. Spectral Contrast (Brightness) ---
-        contrast = np.mean(librosa.feature.spectral_contrast(y=y, sr=sr), axis=1)
-
-        # --- 4. Spectral Centroid (Structure) ---
-        centroid = librosa.feature.spectral_centroid(y=y, sr=sr)
-        centroid_mean = np.mean(centroid)
-        centroid_var = np.var(centroid)
-
-        # --- 5. RMS (Dynamics) ---
-        rms = librosa.feature.rms(y=y)
-        rms_mean = np.mean(rms)
-        rms_var = np.var(rms)
-
-        # --- Combine all features into one vector ---
-        feature_vector = np.concatenate([
-            [tempo],
-            chroma_mean, chroma_delta,
-            contrast,
-            [centroid_mean, centroid_var],
-            [rms_mean, rms_var]
-        ])
-
-        return feature_vector.tolist()
-
-    except Exception as e:
-        print(f"Error reading {os.path.basename(full_path)}: {e}")
-        return None
 
 def cmd_process(args):
     """Analyzes new files and re-runs PCA."""
@@ -116,7 +76,7 @@ def cmd_process(args):
     
     raw_data = load_json(raw_db_path)
     
-    # 1. Find what needs processing
+    # Find what needs processing
     files_on_disk = set()
     for root, _, files in os.walk(args.dir):
         for file in files:
@@ -125,11 +85,23 @@ def cmd_process(args):
                 files_on_disk.add(rel_path)
     
     to_process = files_on_disk - set(raw_data.keys())
+
+    # load ML Model
+    device = 'cuda' if torch.cuda.is_available() else 'mps'
+
+    # Initialize the architecture
+    model = Cnn6(sample_rate=32000, window_size=1024, 
+                 hop_size=320, mel_bins=64, fmin=50, 
+                 fmax=14000, classes_num=527)
+
+    # Load your weights
+    checkpoint = torch.load("Cnn6_mAP=0.343.pth", map_location=device)
+    model.load_state_dict(checkpoint['model'])
+    model.to(device)
+    model.eval()
     
     if not to_process and os.path.exists(lib_db_path):
         print("No new files to analyze.")
-        # We might still want to re-run PCA if user forces it, but usually we skip
-        # Unless the library file is missing
     else:
         print(f"--- Processing {len(to_process)} New Files ---")
         count = 0
@@ -137,44 +109,27 @@ def cmd_process(args):
             full_path = os.path.join(args.dir, rel_path)
             print(f"[{i+1}/{len(to_process)}] Analyzing: {rel_path}...")
             
-            vec = extract_features(full_path)
-            if vec:
-                raw_data[rel_path] = vec
-                count += 1
-        
+            try:
+                vec = extract_embeddings(full_path, model)
+            except Exception as e:
+                print(f"\n[!] SKIPPING CORRUPT FILE: {full_path}")
+                print(f"Reason: {e}")
+                print(traceback.format_exc())
+                continue
+
+            raw_data[rel_path] = vec[0]
+            count += 1
+
         print("Finished analysis. Saving raw data...")
         save_json(raw_data, raw_db_path)
 
-    # 2. RUN PCA (Dimensionality Reduction)
-    # We do this every time to ensure the 'map' is optimal for the current library
-    print("\n--- Running PCA (Compressing Vectors) ---")
-    
-    paths = list(raw_data.keys())
-    if len(paths) < 5:
-        print("Not enough songs to run PCA (need > 5). Skipping library generation.")
-        return
-
-    # Convert dict to matrix
-    X = np.array([raw_data[p] for p in paths])
-    
-    # Normalize features (Crucial: Tempo is 120, MFCC is 20. Need to scale.)
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-    
-    # Compress to N components
-    n_components = min(5, len(paths))
-    pca = PCA(n_components=n_components)
-    X_pca = pca.fit_transform(X_scaled)
-    
-    print(f"Compressed {X.shape[1]} raw dimensions -> {n_components} PCA dimensions.")
-    print(f"Explained Variance: {np.sum(pca.explained_variance_ratio_):.2%}")
-
-    # 3. Create final Library JSON
-    library_data = {}
-    for i, path in enumerate(paths):
+    # Create final Library JSON
+    foldername = os.path.basename(os.path.normpath(args.dir))
+    library_data = {"dir": f'/home/pipod/{foldername}', "files": {}}
+    for i, path in enumerate(raw_data.keys()):
         # Rounding saves space and is fine for similarity checks
-        library_data[path] = [round(x, 4) for x in X_pca[i].tolist()]
-    
+        library_data['files'][path] = np.round(raw_data[path], 4).tolist()
+
     save_json(library_data, lib_db_path)
     print("Ready to sync.")
 
